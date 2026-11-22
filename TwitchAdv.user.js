@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TwitchAdv.user
 // @namespace    https://rud3u2.local
-// @version      2.0.0
+// @version      2.0.4
 // @description  Twitch HLS ad stripper and cleanup.
 // @author       Rud3u2
 // @match        *://*.twitch.tv/*
@@ -16,12 +16,24 @@
         '[data-a-target="ad-banner"]',
         '[data-a-target="display-ad"]',
         '[data-a-target="advertisement"]',
+        '[data-a-target="video-ad-banner"]',
+        '[data-a-target="video-ad-countdown"]',
+        '[data-a-target="video-ad-label"]',
+        '[data-a-target="ax-overlay"]',
+        '[data-test-selector="ad-banner-default-text"]',
+        '[data-ad="true"]',
+        'button[aria-label*="Learn more about this ad" i]',
         '.ad-container',
+        '.ad-slot',
+        '.tw-ad-container',
         '.player-advert',
+        '.player-ad-notice',
         '.display-ad',
         '.ad-banner',
         '.ad-overlay',
         '.ads-container',
+        '.pbyp-player-instance',
+        '.picture-by-picture-player--collapsed',
         '[class*="AdContainer"]',
         '[class*="AdBanner"]',
         '[class*="DisplayAd"]',
@@ -33,15 +45,90 @@
         'iframe[src*="googlesyndication"]'
     ].join(',');
 
+    const AD_UI_SEEDS = [
+        '[data-a-target="video-ad-countdown"]',
+        '[data-a-target="video-ad-label"]',
+        '[data-a-target="ax-overlay"]',
+        '[data-test-selector="ad-banner-default-text"]',
+        '.player-ad-notice',
+        'button[aria-label*="Learn more about this ad" i]'
+    ].join(',');
+
+    function hasPlayerControls(node) {
+        return !!(node && node.querySelector && node.querySelector('[data-a-target="player-controls"], .player-controls'));
+    }
+
+    const hiddenAdShells = new Set();
+
+    function clearHiddenAdShells() {
+        for (const node of hiddenAdShells) {
+            node.style.removeProperty('display');
+        }
+        hiddenAdShells.clear();
+    }
+
+    function hideAdUiShells() {
+        clearHiddenAdShells();
+        for (const seed of document.querySelectorAll(AD_UI_SEEDS)) {
+            let node = seed.parentElement;
+            for (let depth = 0; node && node !== document.body && depth < 3; depth++) {
+                if (hasPlayerControls(node) || node.id === 'root'
+                    || (node.matches && node.matches('.video-player, [data-a-target="video-player"], .persistent-player, #channel-player'))) {
+                    break;
+                }
+                node.style.setProperty('display', 'none', 'important');
+                hiddenAdShells.add(node);
+                node = node.parentElement;
+            }
+        }
+        for (const rail of document.querySelectorAll('.metadata-layout_support')) {
+            if (rail.querySelector && rail.querySelector(AD_UI_SEEDS + ', iframe[src*="doubleclick"], iframe[src*="googlesyndication"]')) {
+                rail.style.setProperty('display', 'none', 'important');
+                hiddenAdShells.add(rail);
+            }
+        }
+    }
+
+    // Narrow Turbo promo hooks only. .player-overlay-background is a generic
+    // Twitch scrim, so it is hidden only when it actually carries a Turbo link.
+    const TURBO_CSS = [
+        '.player-overlay-background:has(a[href*="/turbo"])',
+        '.player-overlay-background:has(a[href*="/how-to-allow-ads-browser"])',
+        '#channel-player-disclosures + div:has(a[href*="/turbo"])'
+    ].join(',');
+
+    function isTurboPromo(node) {
+        if (!node || !node.querySelectorAll) {
+            return false;
+        }
+        if (node.querySelector('a[href*="/turbo"], a[href*="/how-to-allow-ads-browser"]')) {
+            return true;
+        }
+        const text = String(node.innerText || node.textContent || '');
+        return /twitch turbo/i.test(text) && /(ad.free|ads?|subscribe|try turbo)/i.test(text);
+    }
+
+    function hideTurboPromos() {
+        const hosts = document.querySelectorAll('.player-overlay-background, #channel-player-disclosures + div');
+        for (const node of hosts) {
+            if (isTurboPromo(node)) {
+                node.remove();
+            }
+        }
+    }
+
     try {
         const style = document.createElement('style');
-        style.textContent = AD_SELECTORS + '{display:none!important;visibility:hidden!important}';
+        style.textContent = AD_SELECTORS + '{display:none!important;visibility:hidden!important}\n'
+            + TURBO_CSS + '{display:none!important;visibility:hidden!important}';
         (document.head || document.documentElement).appendChild(style);
         const hideDomAds = function () {
+            hideAdUiShells();
             const nodes = document.querySelectorAll(AD_SELECTORS);
             for (const node of nodes) {
                 node.remove();
             }
+            hideTurboPromos();
         };
         hideDomAds();
         new MutationObserver(hideDomAds).observe(document.documentElement, { childList: true, subtree: true });
@@ -50,7 +137,7 @@
 
     const ourTwitchAdSolutionsVersion = 24;// Used to prevent conflicts with outdated versions of the scripts
     if (typeof window.twitchAdSolutionsVersion !== 'undefined' && window.twitchAdSolutionsVersion >= ourTwitchAdSolutionsVersion) {
-        console.log("skipping vaft as there's another script active. ourVersion:" + ourTwitchAdSolutionsVersion + " activeVersion:" + window.twitchAdSolutionsVersion);
+        console.log("skipping TwitchAdv as there's another script active. ourVersion:" + ourTwitchAdSolutionsVersion + " activeVersion:" + window.twitchAdSolutionsVersion);
         window.twitchAdSolutionsVersion = ourTwitchAdSolutionsVersion;
         return;
     }
@@ -68,9 +155,9 @@
         scope.ForceAccessTokenPlayerType = 'popout';
         scope.SkipPlayerReloadOnHevc = true;// Keep the selected HEVC/2k/4k rendition instead of swapping down to AVC during ad breaks (Firefox-safe; Chrome can throw #4000 / #3000 on 2k/4k)
         scope.AlwaysReloadPlayerOnAd = false;// Always pause/play when entering/leaving ads
-        scope.ReloadPlayerAfterAd = true;// After the ad finishes do a player reload instead of pause/play
+        scope.ReloadPlayerAfterAd = false;// Resume with pause/play after an ad: no full player reload, so the stream starts faster
         scope.PlayerReloadMinimalRequestsTime = 1500;
-        scope.PlayerReloadMinimalRequestsPlayerIndex = 2;//autoplay
+        scope.PlayerReloadMinimalRequestsPlayerIndex = 0;//no autoplay fallback; start from embed
         scope.HasTriggeredPlayerReload = false;
         scope.StreamInfos = [];
         scope.StreamInfosByUrl = [];
@@ -273,7 +360,7 @@
         return req.responseText;
     }
     function hookWorkerFetch() {
-        console.log('hookWorkerFetch (vaft)');
+        console.log('hookWorkerFetch (TwitchAdv)');
         const realFetch = fetch;
         fetch = async function(url, options) {
             if (typeof url === 'string') {
@@ -584,6 +671,9 @@
                     if (encodingsM3u8) {
                         try {
                             const streamM3u8Url = getStreamUrlForResolution(encodingsM3u8, currentResolution);
+                            if (!streamM3u8Url) {
+                                continue;
+                            }
                             const streamM3u8Response = await realFetch(streamM3u8Url);
                             if (streamM3u8Response.status == 200) {
                                 const m3u8Text = await streamM3u8Response.text();
@@ -1001,10 +1091,9 @@
                     if (typeof init.headers['Authorization'] === 'string' && init.headers['Authorization'] !== AuthorizationHeader) {
                         postTwitchWorkerMessage('UpdateAuthorizationHeader', AuthorizationHeader = init.headers['Authorization']);
                     }
-                    // Get rid of mini player above chat - TODO: Reject this locally instead of having server reject it
-                    if (init && typeof init.body === 'string' && init.body.includes('PlaybackAccessToken') && init.body.includes('picture-by-picture')) {
-                        init.body = '';
-                    }
+                    // The player-type rewrite below also covers picture-by-picture.
+                    // Never send an empty body: gql answers 400 and Twitch retries it,
+                    // which is what stalls the player on first load.
                     if (ForceAccessTokenPlayerType && typeof init.body === 'string' && init.body.includes('PlaybackAccessToken')) {
                         let replacedPlayerType = '';
                         const newBody = JSON.parse(init.body);
