@@ -27,17 +27,6 @@ uBlock Origin is optional. The script already hides Twitch display ads. Keep uBl
 
 The installed script should appear in Violentmonkey as **TwitchAdv.user**.
 
-## Remove the old script first
-
-If **TWITCH NOMADS** or any other Twitch ad script is still enabled, disable or delete it. Two blockers running together make this one skip itself.
-
-In Violentmonkey:
-
-1. Open the dashboard.
-2. Find the old Twitch script.
-3. Toggle it off, or click delete.
-4. Restart your browser.
-
 ## Verify it is working
 
 1. Open a Twitch stream that normally plays ads.
