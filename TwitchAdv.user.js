@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TwitchAdv.user
 // @namespace    https://rud3u2.local
-// @version      2.0.4
+// @version      2.0.5
 // @description  Twitch HLS ad stripper and cleanup.
 // @author       Rud3u2
 // @match        *://*.twitch.tv/*
@@ -18,9 +18,13 @@
         '[data-a-target="advertisement"]',
         '[data-a-target="video-ad-banner"]',
         '[data-a-target="video-ad-countdown"]',
+        '[data-a-target="video-ad-countdown-container"]',
         '[data-a-target="video-ad-label"]',
+        '[data-a-target="stream-display-ad"]',
         '[data-a-target="ax-overlay"]',
+        '[data-test-selector="sad-overlay"]',
         '[data-test-selector="ad-banner-default-text"]',
+        '[data-test-selector="ad-banner-default-text-container"]',
         '[data-ad="true"]',
         'button[aria-label*="Learn more about this ad" i]',
         '.ad-container',
@@ -32,6 +36,8 @@
         '.ad-banner',
         '.ad-overlay',
         '.ads-container',
+        '.video-player__ad-container',
+        '.persistent-player__ad-banner',
         '.pbyp-player-instance',
         '.picture-by-picture-player--collapsed',
         '[class*="AdContainer"]',
@@ -41,15 +47,21 @@
         '[class*="ad-banner"]',
         '[aria-label*="advertisement" i]',
         '[aria-label*="sponsored" i]',
+        'iframe[src*="amazon-adsystem"]',
         'iframe[src*="doubleclick"]',
-        'iframe[src*="googlesyndication"]'
+        'iframe[src*="googlesyndication"]',
+        'iframe[src*="imasdk"]'
     ].join(',');
 
     const AD_UI_SEEDS = [
         '[data-a-target="video-ad-countdown"]',
+        '[data-a-target="video-ad-countdown-container"]',
         '[data-a-target="video-ad-label"]',
+        '[data-a-target="stream-display-ad"]',
         '[data-a-target="ax-overlay"]',
+        '[data-test-selector="sad-overlay"]',
         '[data-test-selector="ad-banner-default-text"]',
+        '[data-test-selector="ad-banner-default-text-container"]',
         '.player-ad-notice',
         'button[aria-label*="Learn more about this ad" i]'
     ].join(',');
@@ -1068,9 +1080,20 @@
     function hookFetch() {
         const realFetch = window.fetch;
         window.realFetch = realFetch;
+        const AD_HOSTS = [
+            'amazon-adsystem.com',
+            'doubleclick.net',
+            'googlesyndication.com',
+            'imasdk.googleapis.com',
+            'twitchads.com',
+            'ads.twitch.tv'
+        ];
         window.fetch = function(url, init, ...args) {
             if (typeof url === 'string') {
-                if (url.includes('gql')) {
+                if (AD_HOSTS.some(host => url.includes(host))) {
+                    return Promise.resolve(new Response('', { status: 204 }));
+                }
+                if (url.includes('gql') && init && init.headers) {
                     let deviceId = init.headers['X-Device-Id'];
                     if (typeof deviceId !== 'string') {
                         deviceId = init.headers['Device-ID'];
